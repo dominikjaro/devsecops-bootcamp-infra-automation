@@ -1,0 +1,77 @@
+variables:
+  TF_VAR_env_prefix: "dev"
+  TF_VAR_runner_registration_token: $RUNNER_TOKEN
+
+stages:
+  - init
+  - test
+  - build
+  - deploy
+  - plan-destroy
+  - destroy
+
+
+image:
+  name: hashicorp/terraform:latest
+  entrypoint: [""]
+
+init:
+  stage: init
+  script:
+    - terraform init --upgrade
+  artifacts:
+    paths:
+      - .terraform/
+      - .terraform.lock.hcl
+
+validate:
+  stage: test
+  script:
+    - terraform validate
+  allow_failure: true
+
+trivy:
+  stage: test
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy config --format json . > trivy.json
+    - trivy config --exit-code 1 --severity HIGH,CRITICAL .
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - trivy.json
+
+build:
+  stage: build
+  script:
+    - terraform plan -out "planfile"
+  artifacts:
+    paths:
+      - planfile
+
+deploy:
+  stage: deploy
+  script:
+    - terraform apply --input=false "planfile"
+  when: manual
+
+### DESTROY STAGE ###
+plan-destroy:
+  stage: plan-destroy
+  needs: ["init"]
+  script:
+    - terraform plan -destroy -out "destroyplan"
+  when: manual
+  artifacts:
+    paths:
+      - destroyplan
+
+destroy:
+  stage: destroy
+  needs: ["plan-destroy"]
+  script:
+    - terraform apply --input=false "destroyplan"
+  when: manual
